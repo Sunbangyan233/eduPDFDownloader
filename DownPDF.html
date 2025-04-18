@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF下载工具</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        #urlInput {
+            flex: 1;
+            padding: 10px;
+            border: 2px solid #007bff;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        #result {
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+            display: none;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="input-group">
+        <input type="text" id="urlInput" placeholder="请输入包含file和headers参数的URL">
+        <button onclick="processURL()">解析URL</button>
+    </div>
+    <div id="result"></div>
+
+    <script>
+        let currentConfig = {};
+
+        function processURL() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.style.display = 'none';
+
+            try {
+                // 获取并解码URL
+                const rawURL = document.getElementById('urlInput').value;
+                const decodedURL = decodeURIComponent(rawURL);
+
+                // 解析URL参数
+                const urlObj = new URL(decodedURL);
+                const params = new URLSearchParams(urlObj.search);
+
+                // 获取必要参数
+                const fileURL = params.get('file');
+                const headersParam = params.get('headers');
+
+                if (!fileURL || !headersParam) {
+                    throw new Error('URL中缺少必要的file或headers参数');
+                }
+
+                // 解析headers
+                let headers;
+                try {
+                    headers = JSON.parse(headersParam);
+                } catch (e) {
+                    throw new Error('headers参数不是有效的JSON格式');
+                }
+
+                if (!headers['X-ND-AUTH']) {
+                    throw new Error('headers中缺少X-ND-AUTH字段');
+                }
+
+                // 存储配置信息
+                currentConfig = {
+                    fileURL,
+                    authHeader: headers['X-ND-AUTH'],
+                    filename: fileURL.split('/').pop() || 'document.pdf'
+                };
+
+                // 拉起代理服务器下载
+                const { fileURL: proxyFileURL, authHeader: proxyAuthHeader } = currentConfig;
+                const proxyUrl = `https://pdf.sunimg.top/prpr?file_url=${encodeURIComponent(proxyFileURL)}&auth_header=${encodeURIComponent(proxyAuthHeader)}`;
+                window.open(proxyUrl);
+
+                // 显示解析结果
+                showResult(`
+                    <div class="status-title">解析成功！请在新窗口中点击保存以下载</div>
+                    <div>文件地址：${fileURL}</div>
+                    <div>认证头信息：${headers['X-ND-AUTH']}</div>
+                    <div>文件名：${currentConfig.filename}</div>
+                    <button onclick="copyFilename()">复制文件名</button>
+                `, 'success');
+
+            } catch (error) {
+                showResult(`
+                    <div class="status-title">解析失败：</div>
+                    <div>${error.message}</div>
+                `, 'error');
+            }
+        }
+
+        function showResult(content, type) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = content;
+            resultDiv.className = type;
+            resultDiv.style.display = 'block';
+        }
+
+        function copyFilename() {
+            const filename = currentConfig.filename;
+            const tempInput = document.createElement('input');
+            tempInput.value = filename;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempInput);
+            alert('文件名已复制到剪贴板：' + filename);
+        }
+    </script>
+    <div><h2>这东西怎么用？</h2></div>
+    <div>将你从某个其它网站上获取到的含PDF.js的链接粘贴进去，即可解析并下载</div>
+    <div><h2>原理解释：</h2></div>
+    <div>文件下载链接已经包含在URL中，唯一的难点在于带Header请求头下载。后端我们使用Python flask代理文件下载，完整代码如下：</div>
+    <code>from flask import Flask, request, send_file
+        import requests
+        import io
+        app = Flask(__name__)
+        @app.route('/prpr', methods=['GET'])
+        def proxy_download():
+            file_url = request.args.get('file_url')
+            auth_header = request.args.get('auth_header')
+            if not file_url or not auth_header:
+                return "无法下载：URL字段中缺失文件链接或请求头", 400
+            headers = {
+                'X-ND-AUTH': auth_header
+            }
+            try:
+                response = requests.get(file_url, headers=headers)
+                if response.status_code == 200:
+                    pdf_file = io.BytesIO(response.content)
+                    return send_file(pdf_file, mimetype='application/pdf')
+                else:
+                    return f"无法下载：服务器（PDF提供方）返回状态码 {response.status_code}", response.status_code
+            except Exception as e:
+                return f"Error: {str(e)}", 500
+        if __name__ == '__main__':
+            app.run(debug=True, port=5000)</code>
+    <div>你也可以从><a href=app.exe>这里</a>下载一份编译好的exe，点开就能用，如果哪天我们的服务挂了，你也可以替换前面的https://pdf.sunimg.top/ 为http://127.0.0.1:5000/ 继续使用</div>
+</body>
+</html>    
