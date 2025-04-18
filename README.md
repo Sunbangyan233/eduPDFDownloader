@@ -1,0 +1,2 @@
+# eduPDFDownloader
+一个用来下载某个网站上的教材PDF的工具
